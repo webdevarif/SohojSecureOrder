@@ -39,7 +39,7 @@ class Settings {
      */
     public function register_settings() {
         // Register settings group
-        register_setting('sohoj_settings_group', 'sohoj_example_setting');
+        register_setting('sohoj_settings_group', 'sohoj_phone_validation_enabled');
     }
     
     /**
@@ -53,7 +53,7 @@ class Settings {
         }
         
         $settings = array(
-            'sohoj_example_setting' => sanitize_text_field($_POST['example_setting'])
+            'sohoj_phone_validation_enabled' => intval($_POST['phone_validation_enabled'])
         );
         
         foreach ($settings as $key => $value) {

@@ -62,13 +62,19 @@ class Plugin {
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Uninstaller.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/License_Manager.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Update_Checker.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_Validator.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Order_Limiter.php';
         
         // Admin classes
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Admin/Form_Components.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Admin/Admin.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Admin/Settings.php';
         
         // Public classes
         require_once SOHOJ_PLUGIN_PATH . 'includes/Public/Public_Frontend.php';
+        
+        // WooCommerce classes
+        require_once SOHOJ_PLUGIN_PATH . 'includes/WooCommerce/Checkout_Validator.php';
     }
     
     /**
@@ -88,6 +94,12 @@ class Plugin {
         
         // Initialize update checker
         new \SohojSecureOrder\Core\Update_Checker();
+        
+        // Initialize WooCommerce checkout validator
+        new \SohojSecureOrder\WooCommerce\Checkout_Validator();
+        
+        // Initialize order limiter  
+        new \SohojSecureOrder\Core\Order_Limiter();
     }
     
     /**
