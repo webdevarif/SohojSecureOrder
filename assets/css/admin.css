@@ -1,0 +1,40 @@
+/* Sohoj Secure Order Admin Styles */
+
+.sohoj-card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.sohoj-card h2 {
+    margin-top: 0;
+    color: #23282d;
+    border-bottom: 2px solid #0073aa;
+    padding-bottom: 10px;
+}
+
+.sohoj-card ul {
+    margin-left: 20px;
+}
+
+.sohoj-card li {
+    margin-bottom: 5px;
+}
+
+.sohoj-dashboard,
+.sohoj-settings,
+.sohoj-phone-history,
+.sohoj-license {
+    max-width: 800px;
+}
+
+/* Basic responsive design */
+@media (max-width: 768px) {
+    .sohoj-card {
+        padding: 15px;
+        margin: 15px 0;
+    }
+} 
