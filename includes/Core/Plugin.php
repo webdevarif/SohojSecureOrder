@@ -64,6 +64,9 @@ class Plugin {
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Update_Checker.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_Validator.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Order_Limiter.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Incomplete_Orders.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/IP_Blocker.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_History.php';
         
         // Admin classes
         require_once SOHOJ_PLUGIN_PATH . 'includes/Admin/Form_Components.php';
@@ -100,6 +103,16 @@ class Plugin {
         
         // Initialize order limiter  
         new \SohojSecureOrder\Core\Order_Limiter();
+        
+        // Initialize incomplete orders tracker
+        new \SohojSecureOrder\Core\Incomplete_Orders();
+        
+        // Initialize IP blocker
+        $ip_blocker = new \SohojSecureOrder\Core\IP_Blocker();
+        $ip_blocker->create_table();
+        
+        // Initialize Phone History
+        new \SohojSecureOrder\Core\Phone_History();
     }
     
     /**

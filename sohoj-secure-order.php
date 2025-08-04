@@ -26,10 +26,27 @@ define('SOHOJ_GITHUB_REPO', 'webdevarif/SohojSecureOrder');
  * Initialize the plugin
  */
 function sohoj_secure_order_init() {
+    // Load dependencies
+    require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_Validator.php';
+
     // Load the main plugin class
     require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Plugin.php';
     
     // Initialize the plugin
     \SohojSecureOrder\Core\Plugin::get_instance()->init();
+
+    // Initialize IP Blocker
+    require_once SOHOJ_PLUGIN_PATH . 'includes/Core/IP_Blocker.php';
+    new \SohojSecureOrder\Core\IP_Blocker();
 }
 add_action('plugins_loaded', 'sohoj_secure_order_init');
+
+/**
+ * Plugin activation hook
+ */
+function sohoj_secure_order_activate() {
+    require_once SOHOJ_PLUGIN_PATH . 'includes/Core/IP_Blocker.php';
+    $ip_blocker = new \SohojSecureOrder\Core\IP_Blocker();
+    $ip_blocker->create_table();
+}
+register_activation_hook(__FILE__, 'sohoj_secure_order_activate');

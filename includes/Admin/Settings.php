@@ -40,6 +40,7 @@ class Settings {
     public function register_settings() {
         // Register settings group
         register_setting('sohoj_settings_group', 'sohoj_phone_validation_enabled');
+        register_setting('sohoj_settings_group', 'sohoj_ip_blocking_enabled');
     }
     
     /**
@@ -53,7 +54,8 @@ class Settings {
         }
         
         $settings = array(
-            'sohoj_phone_validation_enabled' => intval($_POST['phone_validation_enabled'])
+            'sohoj_phone_validation_enabled' => intval($_POST['phone_validation_enabled']),
+            'sohoj_ip_blocking_enabled' => intval($_POST['ip_blocking_enabled'])
         );
         
         foreach ($settings as $key => $value) {

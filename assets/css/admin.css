@@ -83,7 +83,7 @@
 
 /* Creative Form Fields */
 .sohoj-creative-field {
-    margin-bottom: 24px;
+    margin-bottom: 16px;
 }
 
 .sohoj-creative-label {
@@ -119,12 +119,12 @@
     position: relative;
 }
 
-/* Creative Input */
+/* Creative Input - 40px height */
 .sohoj-creative-input,
 .sohoj-creative-textarea,
 .sohoj-creative-select {
     width: 100%;
-    height: 48px; /* Same as button height */
+    height: 40px; /* Changed to 40px */
     padding: 0 16px;
     border: 2px solid #e5e7eb;
     border-radius: 12px;
@@ -156,7 +156,7 @@
 /* Textarea Specific */
 .sohoj-creative-textarea {
     height: auto;
-    min-height: 96px; /* 2x button height */
+    min-height: 80px; /* 2x button height (40px) */
     padding: 12px 16px;
     resize: vertical;
     line-height: 1.5;
@@ -167,10 +167,11 @@
 /* Select Specific */
 .sohoj-creative-select {
     cursor: pointer;
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
     padding-right: 40px;
+    background-image: none !important;
 }
 
 .select-arrow {
@@ -264,12 +265,23 @@
 
 /* Conditional Fields */
 .sohoj-conditional-fields {
-    margin-top: 16px;
-    padding: 20px;
-    background: #f9fafb;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    border-left: 4px solid #111827;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+/* Field Checkbox Styling */
+.sohoj-field-checkbox:hover {
+    border-color: #3b82f6 !important;
+    background-color: #f0f9ff !important;
+}
+
+.sohoj-field-checkbox input:checked {
+    accent-color: #3b82f6;
+}
+
+.sohoj-field-checkbox:has(input:checked) {
+    border-color: #3b82f6 !important;
+    background-color: #eff6ff !important;
 }
 
 /* Cool Notification Cards */
@@ -462,9 +474,10 @@
     background: #f9fafb;
 }
 
+/* Buttons - 40px height */
 .sohoj-btn-save,
 .sohoj-btn-cancel {
-    height: 48px; /* Same as input height */
+    height: 40px; /* Changed to 40px */
     padding: 0 24px;
     border-radius: 8px;
     font-size: 14px;

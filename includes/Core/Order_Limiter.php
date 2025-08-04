@@ -7,6 +7,8 @@
 
 namespace SohojSecureOrder\Core;
 
+use SohojSecureOrder\Core\Phone_Validator;
+
 if (!defined('ABSPATH')) {
     exit;
 }
@@ -27,10 +29,9 @@ class Order_Limiter {
      * Initialize order limiting functionality
      */
     private function init() {
-        // Hook into WooCommerce checkout if enabled
-        if ($this->is_order_limit_enabled()) {
-            add_action('woocommerce_checkout_process', array($this, 'validate_order_limit'));
-        }
+        // Always hook, check if enabled inside the method
+        add_action('woocommerce_checkout_process', array($this, 'validate_order_limit'), 5);
+        error_log('Order Limiter: Hook registered for woocommerce_checkout_process');
     }
     
     /**
@@ -39,7 +40,9 @@ class Order_Limiter {
      * @return bool
      */
     private function is_order_limit_enabled() {
-        return get_option('sohoj_order_limit_enabled', 0) == 1;
+        $enabled = get_option('sohoj_order_limit_enabled', 0);
+        error_log('Order Limiter: is_order_limit_enabled check - option value: ' . $enabled . ', result: ' . ($enabled == 1 ? 'true' : 'false'));
+        return $enabled == 1;
     }
     
     /**
@@ -51,7 +54,8 @@ class Order_Limiter {
         return array(
             'count' => absint(get_option('sohoj_order_limit_count', 5)),
             'time_value' => absint(get_option('sohoj_order_limit_time_value', 60)),
-            'time_unit' => get_option('sohoj_order_limit_time_unit', 'minutes')
+            'time_unit' => get_option('sohoj_order_limit_time_unit', 'minutes'),
+            'method' => get_option('sohoj_order_limit_method', 'billing_phone')
         );
     }
     
@@ -73,22 +77,62 @@ class Order_Limiter {
     }
     
     /**
-     * Get customer orders within time period
+     * Normalize phone number for consistent comparison - just digits
      * 
-     * @param string $customer_email Customer email
+     * @param string $phone Raw phone number
+     * @return string Normalized phone number (digits only)
+     */
+    private function normalize_phone($phone) {
+        return Phone_Validator::normalize_bangladeshi_phone($phone);
+    }
+    
+    /**
+     * Get customer orders within time period using simple approach
+     * 
+     * @param string $customer_identifier Customer email or phone
      * @param int $time_period_seconds Time period in seconds
+     * @param string $method Limiting method (billing_phone or billing_email)
      * @return array Order objects
      */
-    private function get_customer_orders($customer_email, $time_period_seconds) {
-        $time_ago = time() - $time_period_seconds;
+    private function get_customer_orders($customer_identifier, $time_period_seconds, $method = 'billing_email') {
+        error_log('[SohojSecureOrder Debug] Order Limiter: get_customer_orders called with identifier: ' . $customer_identifier . ', method: ' . $method);
+        error_log('[SohojSecureOrder Debug] Order Limiter: Time period: ' . $time_period_seconds . ' seconds');
         
-        $orders = wc_get_orders(array(
-            'billing_email' => $customer_email,
-            'date_created' => '>=' . $time_ago,
+        $args = array(
+            'limit' => -1, // Get all matching orders
+            'orderby' => 'date',
+            'order' => 'DESC',
+            'return' => 'objects',
             'status' => array('processing', 'completed', 'on-hold', 'pending'),
-            'limit' => -1
-        ));
+            'date_created' => '>=' . (time() - $time_period_seconds),
+        );
+
+        if ($method === 'billing_phone') {
+            $normalized_phone = $this->normalize_phone($customer_identifier);
+            error_log('[SohojSecureOrder Debug] Order Limiter: Searching for normalized phone: ' . $normalized_phone);
+            $args['meta_query'] = array(
+                array(
+                    'key' => '_billing_phone',
+                    'value' => $normalized_phone,
+                    'compare' => '=',
+                ),
+            );
+        } else {
+            $args['billing_email'] = $customer_identifier;
+        }
         
+        error_log('[SohojSecureOrder Debug] Order Limiter: Query arguments: ' . print_r($args, true));
+
+        $orders = wc_get_orders($args);
+        
+        error_log('[SohojSecureOrder Debug] Order Limiter: Found ' . count($orders) . ' orders for identifier: ' . $customer_identifier);
+        
+        if (!empty($orders)) {
+            foreach ($orders as $order) {
+                error_log('[SohojSecureOrder Debug] Order Limiter: Retrieved Order ID: ' . $order->get_id() . ' | Billing Phone: ' . $order->get_billing_phone());
+            }
+        }
+
         return $orders;
     }
     
@@ -176,25 +220,60 @@ class Order_Limiter {
      * Validate order limit during checkout
      */
     public function validate_order_limit() {
+        error_log('Order Limiter: validate_order_limit() called');
+        
         if (!class_exists('WooCommerce')) {
+            error_log('Order Limiter: WooCommerce not active');
             return;
         }
         
-        // Get customer email
-        $customer_email = sanitize_email($_POST['billing_email'] ?? '');
-        if (empty($customer_email)) {
+        // Check if order limiting is enabled
+        if (!$this->is_order_limit_enabled()) {
+            error_log('Order Limiter: Order limiting is disabled');
             return;
         }
         
         $settings = $this->get_order_limit_settings();
+        $method = $settings['method'];
+        
+        error_log('Order Limiter: Settings - ' . print_r($settings, true));
+        error_log('Order Limiter: Method - ' . $method);
+        error_log('Order Limiter: POST data - ' . print_r($_POST, true));
+        
+        // Get customer identifier based on method
+        if ($method === 'billing_phone') {
+            $customer_identifier = sanitize_text_field($_POST['billing_phone'] ?? '');
+            error_log('Order Limiter: Phone identifier - ' . $customer_identifier);
+            if (empty($customer_identifier)) {
+                error_log('Order Limiter: Phone identifier is empty');
+                return;
+            }
+            // Normalize phone for consistent searching
+            $customer_identifier = $this->normalize_phone($customer_identifier);
+            error_log('Order Limiter: Normalized phone identifier - ' . $customer_identifier);
+        } else {
+            // Default to email
+            $customer_identifier = sanitize_email($_POST['billing_email'] ?? '');
+            error_log('Order Limiter: Email identifier - ' . $customer_identifier);
+            if (empty($customer_identifier)) {
+                error_log('Order Limiter: Email identifier is empty');
+                return;
+            }
+        }
+        
         $time_period_seconds = $this->convert_to_seconds($settings['time_value'], $settings['time_unit']);
+        error_log('Order Limiter: Time period seconds - ' . $time_period_seconds);
         
         // Get customer orders within time period
-        $orders = $this->get_customer_orders($customer_email, $time_period_seconds);
+        $orders = $this->get_customer_orders($customer_identifier, $time_period_seconds, $method);
         $order_count = count($orders);
+        
+        error_log('Order Limiter: Found ' . $order_count . ' orders for identifier: ' . $customer_identifier);
+        error_log('Order Limiter: Order limit is ' . $settings['count']);
         
         // Check if limit is exceeded
         if ($order_count >= $settings['count']) {
+            error_log('Order Limiter: Limit exceeded! Adding error notice.');
             $remaining_seconds = $this->calculate_remaining_time($orders, $time_period_seconds);
             $remaining_time = $this->format_time($remaining_seconds, $settings['time_unit']);
             
@@ -213,7 +292,10 @@ class Order_Limiter {
             
             // Replace placeholders and add error
             $processed_message = $this->replace_placeholders($error_message, $replacement_data);
+            error_log('Order Limiter: Error message - ' . $processed_message);
             wc_add_notice($processed_message, 'error');
+        } else {
+            error_log('Order Limiter: Limit not exceeded, allowing order.');
         }
     }
     
