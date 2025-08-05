@@ -98,6 +98,17 @@ class Admin {
             );
         }
         
+        if (get_option('sohoj_fraud_check_enabled', 0) == 1) {
+            add_submenu_page(
+                'sohoj-secure-order',
+                'Fraud Check',
+                'Fraud Check',
+                'manage_options',
+                'sohoj-fraud-check',
+                array($this, 'fraud_check_page')
+            );
+        }
+        
         add_submenu_page(
             'sohoj-secure-order',
             'License',
@@ -196,6 +207,12 @@ class Admin {
             update_option('sohoj_phone_history_enabled', $phone_history_enabled);
             error_log('Debug: After save, option value = ' . get_option('sohoj_phone_history_enabled', 'NOT_SET'));
             
+            $fraud_check_enabled = isset($_POST['fraud_check_enabled']) ? 1 : 0;
+            update_option('sohoj_fraud_check_enabled', $fraud_check_enabled);
+            
+            $fraud_check_use_ai = isset($_POST['fraud_check_use_ai']) ? 1 : 0;
+            update_option('sohoj_fraud_check_use_ai', $fraud_check_use_ai);
+            
             // Tracking fields
             $tracking_fields = array();
             if (isset($_POST['track_billing_first_name'])) $tracking_fields[] = 'billing_first_name';
@@ -236,6 +253,8 @@ class Admin {
         $incomplete_orders_enabled = get_option('sohoj_incomplete_orders_enabled', 0);
         $ip_blocking_enabled = get_option('sohoj_ip_blocking_enabled', 0);
         $phone_history_enabled = get_option('sohoj_phone_history_enabled', 0);
+        $fraud_check_enabled = get_option('sohoj_fraud_check_enabled', 0);
+        $fraud_check_use_ai = get_option('sohoj_fraud_check_use_ai', 0);
         error_log('Debug: Loading settings page - phone_history_enabled = ' . $phone_history_enabled);
         $tracking_fields = get_option('sohoj_incomplete_orders_tracking_fields', array('billing_email', 'billing_phone'));
         
@@ -570,8 +589,38 @@ class Admin {
             'description' => 'Show order history for phone numbers in incomplete orders table.',
             'content' => $phone_history_switch
         ));
+        
+        $fraud_check_main_switch = \SohojSecureOrder\Admin\Form_Components::render_switch(array(
+            'id' => 'fraud_check_enabled',
+            'name' => 'fraud_check_enabled',
+            'value' => 1,
+            'checked' => $fraud_check_enabled == 1,
+            'label' => 'Enable Fraud Check',
+            'description' => 'When enabled, provides a fraud check tool to analyze phone numbers for delivery risk assessment using CurtCommerz API.'
+        ));
 
-        $all_sections = $order_limit_section . $phone_validation_section . $incomplete_orders_section . $ip_blocking_section . $phone_history_section;
+        $fraud_check_ai_switch = \SohojSecureOrder\Admin\Form_Components::render_switch(array(
+            'id' => 'fraud_check_use_ai',
+            'name' => 'fraud_check_use_ai',
+            'value' => 1,
+            'checked' => $fraud_check_use_ai == 1,
+            'label' => 'Include AI Analysis',
+            'description' => 'Include AI-powered risk assessment and recommendations (may increase processing time)'
+        ));
+
+        // Create nested fraud check options
+        $fraud_check_content = $fraud_check_main_switch . '
+        <div id="fraud-check-ai-option" style="margin-left: 25px; margin-top: 15px; padding-left: 15px; border-left: 3px solid #e5e7eb; ' . ($fraud_check_enabled == 1 ? '' : 'display: none;') . '">
+            ' . $fraud_check_ai_switch . '
+        </div>';
+
+        $fraud_check_section = \SohojSecureOrder\Admin\Form_Components::render_section(array(
+            'title' => 'Fraud Check',
+            'description' => 'Analyze phone numbers for delivery risks and fraud patterns.',
+            'content' => $fraud_check_content
+        ));
+
+        $all_sections = $order_limit_section . $phone_validation_section . $incomplete_orders_section . $ip_blocking_section . $phone_history_section . $fraud_check_section;
         
         $save_button = \SohojSecureOrder\Admin\Form_Components::render_button(array(
             'text' => 'Save Settings',
@@ -617,6 +666,20 @@ class Admin {
                 <?php echo $form_container; ?>
             </div>
         </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            // Handle fraud check toggle
+            $('#fraud_check_enabled').change(function() {
+                if ($(this).is(':checked')) {
+                    $('#fraud-check-ai-option').fadeIn();
+                } else {
+                    $('#fraud-check-ai-option').fadeOut();
+                }
+            });
+        });
+        </script>
+        
         <?php
     }
     
@@ -1044,17 +1107,540 @@ class Admin {
      * License page
      */
     public function license_page() {
+        $license_manager = new \SohojSecureOrder\Core\License_Manager();
+        $is_active = \SohojSecureOrder\Core\License_Manager::is_license_active();
+        $api_key = \SohojSecureOrder\Core\License_Manager::get_api_key();
+        $license_data = \SohojSecureOrder\Core\License_Manager::get_license_data();
+        
+        // Build license status display
+        $status_badge = $is_active 
+            ? '<span class="sohoj-badge-success">Active</span>'
+            : '<span class="sohoj-badge-error">Inactive</span>';
+        
+        // Build stats for active license
+        $stats_content = '';
+        if ($is_active && !empty($license_data)) {
+            $plan_name = \SohojSecureOrder\Core\License_Manager::get_plan_name();
+            $fraud_checks = \SohojSecureOrder\Core\License_Manager::get_remaining_fraud_checks();
+            $sms_balance = number_format(\SohojSecureOrder\Core\License_Manager::get_sms_balance(), 2);
+            $status = isset($license_data['status']) ? ucfirst($license_data['status']) : 'Unknown';
+            
+            $stats_content = '
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 20px 0;">
+                <div class="sohoj-stat-item">
+                    <div class="sohoj-stat-icon">📦</div>
+                    <div class="sohoj-stat-content">
+                        <h4>Plan</h4>
+                        <p>' . esc_html($plan_name) . '</p>
+                    </div>
+                </div>
+                <div class="sohoj-stat-item">
+                    <div class="sohoj-stat-icon">🔍</div>
+                    <div class="sohoj-stat-content">
+                        <h4>Fraud Checks</h4>
+                        <p>' . $fraud_checks . ' remaining</p>
+                    </div>
+                </div>
+                <div class="sohoj-stat-item">
+                    <div class="sohoj-stat-icon">💬</div>
+                    <div class="sohoj-stat-content">
+                        <h4>SMS Balance</h4>
+                        <p>৳' . $sms_balance . '</p>
+                    </div>
+                </div>
+                <div class="sohoj-stat-item">
+                    <div class="sohoj-stat-icon">✅</div>
+                    <div class="sohoj-stat-content">
+                        <h4>Status</h4>
+                        <p>' . $status . '</p>
+                    </div>
+                </div>
+            </div>';
+            
+            // Add expiration warning if needed
+            if (isset($license_data['end_date'])) {
+                $expiry_date = date('F j, Y', strtotime($license_data['end_date']));
+                $expiry_warning = \SohojSecureOrder\Core\License_Manager::is_license_expiring_soon() 
+                    ? '<strong style="color: #dc2626;">(Expires Soon!)</strong>' 
+                    : '';
+                    
+                $stats_content .= \SohojSecureOrder\Admin\Form_Components::render_info_box(array(
+                    'type' => \SohojSecureOrder\Core\License_Manager::is_license_expiring_soon() ? 'warning' : 'info',
+                    'content' => '<strong>License Expires:</strong> ' . $expiry_date . ' ' . $expiry_warning
+                ));
+            }
+        }
+        
+        // Build main form content
+        if (!$is_active) {
+            // Activation form
+            $api_key_field = \SohojSecureOrder\Admin\Form_Components::render_input(array(
+                'id' => 'curtcommerz-api-key',
+                'name' => 'curtcommerz_api_key',
+                'label' => 'CurtCommerz API Key',
+                'placeholder' => 'fc_abc123...',
+                'description' => 'Get your API key from your CurtCommerz subscription dashboard.',
+                'style' => 'font-family: monospace; width: 100%; max-width: 500px;'
+            ));
+            
+            $activate_button = \SohojSecureOrder\Admin\Form_Components::render_button(array(
+                'id' => 'activate-license-btn',
+                'text' => '🚀 Activate License',
+                'type' => 'button',
+                'class' => 'primary',
+                'size' => 'large'
+            ));
+            
+            $form_content = '
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h2 style="margin: 0 0 8px 0;">Activate Your CurtCommerz License</h2>
+                    <p style="color: #6b7280; margin: 0;">Enter your subscription API key to unlock premium features</p>
+                </div>
+                
+                ' . $api_key_field . '
+                
+                <div style="margin-top: 24px; text-align: center;">
+                    ' . $activate_button . '
+                </div>
+                
+                <div id="license-message" style="margin-top: 20px; display: none;"></div>
+            ';
+        } else {
+            // Management form for active license
+            $current_key_display = '<code style="background: #f3f4f6; padding: 8px 12px; border-radius: 4px; font-size: 12px; color: #374151;">' 
+                . esc_html(substr($api_key, 0, 20) . '...') . '</code>';
+                
+            $check_button = \SohojSecureOrder\Admin\Form_Components::render_button(array(
+                'id' => 'check-license-btn',
+                'text' => '🔄 Check Status',
+                'type' => 'button',
+                'class' => 'secondary',
+                'size' => 'normal'
+            ));
+            
+            $deactivate_button = \SohojSecureOrder\Admin\Form_Components::render_button(array(
+                'id' => 'deactivate-license-btn',
+                'text' => '🔓 Deactivate License',
+                'type' => 'button',
+                'class' => 'danger',
+                'size' => 'normal'
+            ));
+            
+            $form_content = '
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <h2 style="margin: 0 0 8px 0;">License Active</h2>
+                    <p style="color: #6b7280; margin: 0;">Your CurtCommerz license is active and ready to use</p>
+                </div>
+                
+                ' . $stats_content . '
+                
+                <div style="margin: 24px 0;">
+                    <h4 style="margin: 0 0 8px 0;">Current API Key</h4>
+                    ' . $current_key_display . '
+                </div>
+                
+                <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                    ' . $check_button . '
+                    ' . $deactivate_button . '
+                </div>
+                
+                <div id="license-message" style="margin-top: 20px; display: none;"></div>
+            ';
+        }
+        
+        // Features info
+        $features_info = \SohojSecureOrder\Admin\Form_Components::render_info_box(array(
+            'type' => 'info',
+            'content' => '
+                <h4 style="margin: 0 0 12px 0;">🌟 Premium Features</h4>
+                <ul style="margin: 0; padding-left: 20px;">
+                    <li><strong>Courier Services:</strong> Steadfast, Pathao, RedX integration</li>
+                    <li><strong>SMS Services:</strong> OTP verification, bulk SMS, notifications</li>
+                    <li><strong>Fraud Detection:</strong> Phone number risk assessment</li>
+                    <li><strong>24/7 Support:</strong> Priority customer support</li>
+                </ul>
+            '
+        ));
+        
+        $main_form = \SohojSecureOrder\Admin\Form_Components::render_form_container(
+            $form_content . $features_info,
+            array(
+                'title' => 'CurtCommerz License Management',
+                'description' => '',
+                'style' => 'max-width: 700px; margin: 0 auto;'
+            )
+        );
+        
         ?>
         <div class="wrap">
-            <h1>License Management</h1>
-            <div class="sohoj-license">
-                <div class="sohoj-card">
-                    <h2>Plugin License</h2>
-                    <p>Manage your plugin license.</p>
-                    <p><em>License functionality coming soon...</em></p>
-                </div>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="display: inline-flex; align-items: center; gap: 12px; margin: 0; color: #111827;">
+                    CurtCommerz License Management
+                    <?php echo $status_badge; ?>
+                </h1>
             </div>
+            
+            <style>
+                .sohoj-badge-success {
+                    background: #d1fae5;
+                    color: #065f46;
+                    padding: 6px 16px;
+                    border-radius: 20px;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                .sohoj-badge-error {
+                    background: #fee2e2;  
+                    color: #991b1b;
+                    padding: 6px 16px;
+                    border-radius: 20px;
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                .sohoj-stat-item {
+                    display: flex;
+                    align-items: center;
+                    padding: 16px;
+                    background: #f9fafb;
+                    border-radius: 8px;
+                    border: 1px solid #e5e7eb;
+                }
+                .sohoj-stat-icon {
+                    font-size: 24px;
+                    margin-right: 12px;
+                }
+                .sohoj-stat-content h4 {
+                    margin: 0 0 4px 0;
+                    font-size: 14px;
+                    color: #6b7280;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                }
+                .sohoj-stat-content p {
+                    margin: 0;
+                    font-size: 16px;
+                    font-weight: 600;
+                    color: #111827;
+                }
+                .sohoj-btn-danger {
+                    background: #dc2626 !important;
+                    border-color: #dc2626 !important;
+                    color: white !important;
+                }
+                .sohoj-btn-danger:hover {
+                    background: #b91c1c !important;
+                    border-color: #b91c1c !important;
+                }
+            </style>
+            
+            <?php echo $main_form; ?>
         </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            var licenseNonce = '<?php echo wp_create_nonce('sohoj_license_nonce'); ?>';
+            
+            function showMessage(message, type) {
+                var $messageDiv = $('#license-message');
+                var messageBox = '';
+                
+                if (type === 'success') {
+                    messageBox = '<div class="sohoj-info-box sohoj-info-success" style="background: #d1fae5; color: #065f46; border: 1px solid #10b981; padding: 12px; border-radius: 6px;"><strong>✅ Success:</strong> ' + message + '</div>';
+                } else {
+                    messageBox = '<div class="sohoj-info-box sohoj-info-error" style="background: #fee2e2; color: #991b1b; border: 1px solid #ef4444; padding: 12px; border-radius: 6px;"><strong>❌ Error:</strong> ' + message + '</div>';
+                }
+                
+                $messageDiv.html(messageBox).show();
+                
+                // Reload page after successful activation/deactivation
+                if (type === 'success') {
+                    setTimeout(function() {
+                        location.reload();
+                    }, 2000);
+                }
+            }
+            
+            $('#activate-license-btn').click(function() {
+                var $btn = $(this);
+                var apiKey = $('#curtcommerz-api-key').val().trim();
+                
+                if (!apiKey) {
+                    showMessage('Please enter your API key', 'error');
+                    return;
+                }
+                
+                $btn.prop('disabled', true).text('🔄 Activating...');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'sohoj_activate_license',
+                        api_key: apiKey,
+                        nonce: licenseNonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showMessage(response.data.message, 'success');
+                        } else {
+                            showMessage(response.data, 'error');
+                            $btn.prop('disabled', false).text('🚀 Activate License');
+                        }
+                    },
+                    error: function() {
+                        showMessage('Connection error. Please try again.', 'error');
+                        $btn.prop('disabled', false).text('🚀 Activate License');
+                    }
+                });
+            });
+            
+            $('#check-license-btn').click(function() {
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('⏳ Checking...');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'sohoj_check_license',
+                        nonce: licenseNonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showMessage('License status updated successfully', 'success');
+                        } else {
+                            showMessage(response.data, 'error');
+                        }
+                        $btn.prop('disabled', false).text('🔄 Check Status');
+                    },
+                    error: function() {
+                        showMessage('Connection error. Please try again.', 'error');
+                        $btn.prop('disabled', false).text('🔄 Check Status');
+                    }
+                });
+            });
+            
+            $('#deactivate-license-btn').click(function() {
+                if (!confirm('⚠️ Are you sure you want to deactivate your license?\n\nThis will disable all premium features including:\n• Courier services\n• SMS services\n• Fraud detection\n• Priority support')) {
+                    return;
+                }
+                
+                var $btn = $(this);
+                $btn.prop('disabled', true).text('⏳ Deactivating...');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'sohoj_deactivate_license',
+                        nonce: licenseNonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            showMessage(response.data, 'success');
+                        } else {
+                            showMessage(response.data, 'error');
+                            $btn.prop('disabled', false).text('🔓 Deactivate License');
+                        }
+                    },
+                    error: function() {
+                        showMessage('Connection error. Please try again.', 'error');
+                        $btn.prop('disabled', false).text('🔓 Deactivate License');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
+    }
+    
+    /**
+     * Fraud Check page
+     */
+    public function fraud_check_page() {
+        $license_manager = new \SohojSecureOrder\Core\License_Manager();
+        $is_active = \SohojSecureOrder\Core\License_Manager::is_license_active();
+        
+        if (!$is_active) {
+            ?>
+            <div class="wrap">
+                <h1>Fraud Check</h1>
+                <?php echo \SohojSecureOrder\Admin\Form_Components::render_info_box(array(
+                    'type' => 'warning',
+                    'content' => '<strong>License Required:</strong> Please activate your CurtCommerz license to use the fraud check feature. <a href="' . admin_url('admin.php?page=sohoj-license') . '">Activate License</a>'
+                )); ?>
+            </div>
+            <?php
+            return;
+        }
+        
+        // Build the search form
+        $phone_input = \SohojSecureOrder\Admin\Form_Components::render_text_input(array(
+            'id' => 'fraud-check-phone',
+            'name' => 'phone',
+            'label' => 'Phone Number',
+            'placeholder' => '01712345678 or +8801712345678',
+            'description' => 'Enter a Bangladeshi phone number to check for fraud patterns',
+            'style' => 'font-family: monospace; font-size: 16px;'
+        ));
+        
+        $check_button = \SohojSecureOrder\Admin\Form_Components::render_button(array(
+            'id' => 'fraud-check-btn',
+            'text' => '🔍 Check Phone Number',
+            'type' => 'button',
+            'class' => 'primary',
+            'size' => 'large'
+        ));
+        
+        $form_content = '
+            <div style="margin-bottom: 24px;">
+                ' . $phone_input . '
+            </div>
+            
+            <div style="text-align: center; margin-bottom: 30px;">
+                ' . $check_button . '
+            </div>
+            
+            <div id="fraud-results" style="display: none; margin-top: 30px;">
+                <!-- Results will be loaded here -->
+            </div>
+        ';
+        
+        $main_form = \SohojSecureOrder\Admin\Form_Components::render_form_container(
+            $form_content,
+            array(
+                'title' => 'Phone Number Fraud Check',
+                'description' => 'Analyze phone numbers for delivery risk patterns and fraud indicators using CurtCommerz intelligence.',
+                'style' => 'max-width: 800px; margin: 0 auto;'
+            )
+        );
+        
+        ?>
+        <div class="wrap">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h1 style="margin: 0; color: #111827;">🛡️ Fraud Check Tool</h1>
+                <p style="color: #6b7280; margin: 8px 0 0 0;">Intelligent fraud detection powered by CurtCommerz</p>
+            </div>
+            
+            <?php echo $main_form; ?>
+            
+            <style>
+                .fraud-risk-low {
+                    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+                    border: 2px solid #10b981;
+                    color: #065f46;
+                }
+                .fraud-risk-medium {
+                    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+                    border: 2px solid #f59e0b;
+                    color: #92400e;
+                }
+                .fraud-risk-high {
+                    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+                    border: 2px solid #ef4444;
+                    color: #991b1b;
+                }
+                .fraud-result-card {
+                    border-radius: 12px;
+                    padding: 24px;
+                    margin: 16px 0;
+                    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+                }
+                .fraud-stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                    gap: 16px;
+                    margin: 20px 0;
+                }
+                .fraud-stat-item {
+                    background: rgba(255,255,255,0.7);
+                    padding: 16px;
+                    border-radius: 8px;
+                    text-align: center;
+                    border: 1px solid rgba(0,0,0,0.1);
+                }
+                .fraud-stat-number {
+                    font-size: 24px;
+                    font-weight: bold;
+                    display: block;
+                    margin-bottom: 4px;
+                }
+                .fraud-stat-label {
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                    opacity: 0.8;
+                }
+                .ai-suggestion {
+                    background: rgba(255,255,255,0.9);
+                    border-radius: 8px;
+                    padding: 16px;
+                    margin-top: 20px;
+                    border: 1px solid rgba(0,0,0,0.1);
+                    font-style: italic;
+                }
+                .loading-spinner {
+                    display: inline-block;
+                    width: 20px;
+                    height: 20px;
+                    border: 3px solid rgba(255,255,255,.3);
+                    border-radius: 50%;
+                    border-top-color: #fff;
+                    animation: spin 1s ease-in-out infinite;
+                }
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
+                }
+            </style>
+        </div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            var fraudNonce = '<?php echo wp_create_nonce('sohoj_fraud_check_nonce'); ?>';
+            
+            $('#fraud-check-btn').click(function() {
+                var $btn = $(this);
+                var phone = $('#fraud-check-phone').val().trim();
+                
+                if (!phone) {
+                    alert('Please enter a phone number');
+                    return;
+                }
+                
+                $btn.prop('disabled', true).html('<span class="loading-spinner"></span> Checking...');
+                $('#fraud-results').hide();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'sohoj_fraud_check',
+                        phone: phone,
+                        nonce: fraudNonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            $('#fraud-results').html(response.data).fadeIn();
+                        } else {
+                            alert('Error: ' + response.data);
+                        }
+                        $btn.prop('disabled', false).html('🔍 Check Phone Number');
+                    },
+                    error: function() {
+                        alert('Connection error. Please try again.');
+                        $btn.prop('disabled', false).html('🔍 Check Phone Number');
+                    }
+                });
+            });
+            
+            // Allow Enter key to trigger search
+            $('#fraud-check-phone').keypress(function(e) {
+                if (e.which == 13) {
+                    $('#fraud-check-btn').click();
+                }
+            });
+        });
+        </script>
         <?php
     }
     

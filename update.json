@@ -1,0 +1,16 @@
+{
+    "version": "1.0.1",
+    "download_url": "https://github.com/webdevarif/SohojSecureOrder/archive/refs/heads/main.zip",
+    "requires": "5.0",
+    "requires_php": "7.4",
+    "tested": "6.0",
+    "last_updated": "2024-01-15",
+    "sections": {
+        "description": "A comprehensive WordPress plugin for secure order management with fraud detection, phone validation, and order limiting features.",
+        "changelog": "## Version 1.0.1\n\n- Added fraud detection system\n- Improved phone validation\n- Enhanced order limiting features\n- Added incomplete orders tracking\n- Better admin interface\n\n## Version 1.0.0\n\n- Initial release\n- Basic order security features\n- Phone number validation\n- Order limiting system"
+    },
+    "banners": {
+        "high": "https://raw.githubusercontent.com/webdevarif/SohojSecureOrder/main/assets/banner-772x250.png",
+        "low": "https://raw.githubusercontent.com/webdevarif/SohojSecureOrder/main/assets/banner-154x500.png"
+    }
+} 
