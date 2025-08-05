@@ -95,14 +95,9 @@ class Update_Checker {
             ?>
             <div class="notice notice-info is-dismissible">
                 <p>
-                    <strong>Sohoj Secure Order:</strong> 
-                    A new version (<?php echo esc_html($latest_version); ?>) is available. 
-                    <a href="<?php echo esc_url(admin_url('admin.php?action=sohoj_update_plugin&_wpnonce=' . wp_create_nonce('sohoj_update_nonce'))); ?>" class="button button-secondary" style="margin-left: 10px;">
-                        Update Now
-                    </a>
-                    <a href="https://github.com/webdevarif/SohojSecureOrder/releases" target="_blank" class="button button-link">
-                        View Release Notes
-                    </a>
+                    <strong>There is a new version of Sohoj Secure Order available.</strong> 
+                    <a href="<?php echo esc_url(admin_url('admin.php?action=sohoj_update_plugin&_wpnonce=' . wp_create_nonce('sohoj_update_nonce'))); ?>">View version <?php echo esc_html($latest_version); ?> details</a> or 
+                    <a href="<?php echo esc_url(admin_url('admin.php?action=sohoj_update_plugin&_wpnonce=' . wp_create_nonce('sohoj_update_nonce'))); ?>">update now</a>.
                 </p>
             </div>
             <?php
@@ -136,9 +131,6 @@ class Update_Checker {
         if ($update_available && $latest_version) {
             $update_link = '<a href="' . esc_url(admin_url('admin.php?action=sohoj_update_plugin&_wpnonce=' . wp_create_nonce('sohoj_update_nonce'))) . '" style="color: #2271b1; font-weight: 600;">Update to v' . esc_html($latest_version) . '</a>';
             array_unshift($links, $update_link);
-        } else {
-            $check_link = '<a href="' . esc_url(admin_url('plugins.php?sohoj_check_updates=1')) . '" style="color: #646970;">Check for Updates</a>';
-            array_unshift($links, $check_link);
         }
         
         return $links;
