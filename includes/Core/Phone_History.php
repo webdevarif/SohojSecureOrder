@@ -20,6 +20,7 @@ class Phone_History {
      * Constructor
      */
     public function __construct() {
+        $this->create_fraud_cache_table();
         $this->init();
     }
     
@@ -28,38 +29,41 @@ class Phone_History {
      */
     private function init() {
         $phone_history_enabled = get_option('sohoj_phone_history_enabled', 0);
-        error_log('Phone_History: Initializing - setting value: ' . $phone_history_enabled);
+        $fraud_check_enabled = get_option('sohoj_fraud_check_enabled', 0);
         
-        // Force enable for testing - remove this line later
-        $phone_history_enabled = 1;
+        error_log('Phone_History: Initializing - phone_history: ' . $phone_history_enabled . ', fraud_check: ' . $fraud_check_enabled);
         
-        // Only initialize if Phone History is enabled
-        if ($phone_history_enabled == 1) {
+        // Initialize if either feature is enabled
+        if ($phone_history_enabled == 1 || $fraud_check_enabled == 1) {
             error_log('Phone_History: Registering hooks for WooCommerce orders table');
             
-            // Add History column to WooCommerce orders table
-            add_filter('manage_woocommerce_page_wc-orders_columns', array($this, 'add_history_column'));
-            add_filter('manage_edit-shop_order_columns', array($this, 'add_history_column'));
+            // Add columns to WooCommerce orders table
+            add_filter('manage_woocommerce_page_wc-orders_columns', array($this, 'add_columns'));
+            add_filter('manage_edit-shop_order_columns', array($this, 'add_columns'));
             
-            // Render History column content
-            add_action('manage_woocommerce_page_wc-orders_custom_column', array($this, 'render_history_column'), 10, 2);
-            add_action('manage_shop_order_posts_custom_column', array($this, 'render_history_column_legacy'), 10, 2);
+            // Render column content
+            add_action('manage_woocommerce_page_wc-orders_custom_column', array($this, 'render_column'), 10, 2);
+            add_action('manage_shop_order_posts_custom_column', array($this, 'render_column_legacy'), 10, 2);
             
-            // AJAX handler for phone history modal
+            // AJAX handlers
             add_action('wp_ajax_sohoj_get_phone_history', array($this, 'get_phone_history_ajax'));
+            add_action('wp_ajax_sohoj_get_fraud_check_details', array($this, 'get_fraud_check_details_ajax'));
             
             // Enqueue scripts for orders page
             add_action('admin_enqueue_scripts', array($this, 'enqueue_scripts'));
         } else {
-            error_log('Phone_History: Not enabled - setting value: ' . $phone_history_enabled);
+            error_log('Phone_History: Not enabled - phone_history: ' . $phone_history_enabled . ', fraud_check: ' . $fraud_check_enabled);
         }
     }
     
     /**
-     * Add History column to orders table
+     * Add columns to orders table
      */
-    public function add_history_column($columns) {
-        error_log('Phone_History: add_history_column called with columns: ' . print_r(array_keys($columns), true));
+    public function add_columns($columns) {
+        $phone_history_enabled = get_option('sohoj_phone_history_enabled', 0);
+        $fraud_check_enabled = get_option('sohoj_fraud_check_enabled', 0);
+        
+        error_log('Phone_History: add_columns called with columns: ' . print_r(array_keys($columns), true));
         
         $new_columns = array();
         $inserted = false;
@@ -68,7 +72,12 @@ class Phone_History {
             $new_columns[$key] = $label;
             // Insert after the 'order_status' column
             if ($key === 'order_status') {
-                $new_columns['phone_history'] = __('Phone History', 'sohoj-secure-order');
+                if ($phone_history_enabled == 1) {
+                    $new_columns['phone_history'] = __('Phone History', 'sohoj-secure-order');
+                }
+                if ($fraud_check_enabled == 1) {
+                    $new_columns['fraud_check'] = __('Fraud Check', 'sohoj-secure-order');
+                }
                 $inserted = true;
                 error_log('Phone_History: Inserted after order_status column');
             }
@@ -76,7 +85,12 @@ class Phone_History {
         
         // If order_status column doesn't exist, add at the end
         if (!$inserted) {
-            $new_columns['phone_history'] = __('Phone History', 'sohoj-secure-order');
+            if ($phone_history_enabled == 1) {
+                $new_columns['phone_history'] = __('Phone History', 'sohoj-secure-order');
+            }
+            if ($fraud_check_enabled == 1) {
+                $new_columns['fraud_check'] = __('Fraud Check', 'sohoj-secure-order');
+            }
             error_log('Phone_History: Added at the end - order_status not found');
         }
         
@@ -85,45 +99,236 @@ class Phone_History {
     }
     
     /**
-     * Render History column content for HPOS orders
+     * Render column content for HPOS orders
      */
-    public function render_history_column($column, $order) {
+    public function render_column($column, $order) {
         if ($column === 'phone_history') {
-            if (is_numeric($order)) {
-                $order = wc_get_order($order);
-            }
-            
-            if ($order) {
-                $phone = $order->get_billing_phone();
-                if ($phone) {
-                    $phone_stats = $this->get_phone_order_stats($phone);
-                    echo '<button class="button button-small sohoj-history-btn" data-phone="' . esc_attr($phone) . '" style="font-size: 11px;">' .
-                         $phone_stats['total'] . ' Orders' .
-                         '</button>';
-                } else {
-                    echo '<span style="color: #999;">No Phone</span>';
-                }
+            $this->render_phone_history_column($order);
+        } elseif ($column === 'fraud_check') {
+            $this->render_fraud_check_column($order);
+        }
+    }
+    
+    /**
+     * Render column content for legacy orders (post-based)
+     */
+    public function render_column_legacy($column, $post_id) {
+        if ($column === 'phone_history') {
+            $this->render_phone_history_column(wc_get_order($post_id));
+        } elseif ($column === 'fraud_check') {
+            $this->render_fraud_check_column(wc_get_order($post_id));
+        }
+    }
+    
+    /**
+     * Render phone history column
+     */
+    private function render_phone_history_column($order) {
+        if (is_numeric($order)) {
+            $order = wc_get_order($order);
+        }
+        
+        if ($order) {
+            $phone = $order->get_billing_phone();
+            if ($phone) {
+                $phone_stats = $this->get_phone_order_stats($phone);
+                echo '<button class="button button-small sohoj-history-btn" data-phone="' . esc_attr($phone) . '" style="font-size: 11px;">' .
+                     $phone_stats['total'] . ' Orders' .
+                     '</button>';
+            } else {
+                echo '<span style="color: #999;">No Phone</span>';
             }
         }
     }
     
     /**
-     * Render History column content for legacy orders (post-based)
+     * Render fraud check column
      */
-    public function render_history_column_legacy($column, $post_id) {
-        if ($column === 'phone_history') {
-            $order = wc_get_order($post_id);
-            if ($order) {
-                $phone = $order->get_billing_phone();
-                if ($phone) {
-                    $phone_stats = $this->get_phone_order_stats($phone);
-                    echo '<button class="button button-small sohoj-history-btn" data-phone="' . esc_attr($phone) . '" style="font-size: 11px;">' .
-                         $phone_stats['total'] . ' Orders' .
-                         '</button>';
+    private function render_fraud_check_column($order) {
+        if (is_numeric($order)) {
+            $order = wc_get_order($order);
+        }
+        
+        if ($order) {
+            $phone = $order->get_billing_phone();
+            if ($phone) {
+                $fraud_stats = $this->get_cached_fraud_stats($phone);
+                $risk_class = $this->get_risk_class($fraud_stats);
+                $risk_color = $this->get_risk_color($risk_class);
+                
+                
+                // Determine display text based on order history
+                $display_text = '';
+                if ($fraud_stats['total_orders'] == 0) {
+                    $display_text = 'New Customer';
                 } else {
-                    echo '<span style="color: #999;">No Phone</span>';
+                    $display_text = $fraud_stats['total_success'] . 'S / ' . $fraud_stats['total_cancel'] . 'C';
                 }
+                
+                echo '<div class="sohoj-fraud-indicator" style="display: flex; align-items: center; gap: 6px;">';
+                echo '<div class="risk-circle risk-' . esc_attr($risk_class) . '"></div>';
+                echo '<button class="button button-small sohoj-fraud-btn" data-phone="' . esc_attr($phone) . '" style="font-size: 11px; padding: 2px 6px;">' .
+                     esc_html($display_text) .
+                     '</button>';
+                echo '</div>';
+            } else {
+                echo '<span style="color: #999;">No Phone</span>';
             }
+        }
+    }
+    
+    /**
+     * Create fraud cache table
+     */
+    private function create_fraud_cache_table() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'sohoj_fraud_cache';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            phone_number varchar(20) NOT NULL,
+            fraud_data longtext DEFAULT NULL,
+            success_count int(11) DEFAULT 0,
+            cancel_count int(11) DEFAULT 0,
+            total_orders int(11) DEFAULT 0,
+            success_rate decimal(5,2) DEFAULT 0.00,
+            risk_level varchar(10) DEFAULT 'unknown',
+            last_updated datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY phone_number (phone_number),
+            KEY last_updated (last_updated)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
+    }
+    
+    /**
+     * Ensure fraud cache table exists
+     */
+    private function ensure_fraud_cache_table_exists() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'sohoj_fraud_cache';
+        
+        // Check if table exists
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") != $table_name) {
+            $this->create_fraud_cache_table();
+        }
+    }
+    
+    /**
+     * Get cached fraud statistics or generate from order history
+     */
+    private function get_cached_fraud_stats($phone) {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'sohoj_fraud_cache';
+        
+        // Ensure table exists (in case of activation issues)
+        $this->ensure_fraud_cache_table_exists();
+        
+        // Check cache first
+        $cached = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE phone_number = %s",
+            $phone
+        ));
+        
+        // If cache exists and is recent (less than 1 hour old), use it
+        if ($cached && (strtotime($cached->last_updated) > (time() - 3600))) {
+            return array(
+                'total_success' => (int)$cached->success_count,
+                'total_cancel' => (int)$cached->cancel_count,
+                'total_orders' => (int)$cached->total_orders,
+                'success_rate' => (float)$cached->success_rate,
+                'risk_level' => $cached->risk_level,
+                'fraud_data' => $cached->fraud_data ? json_decode($cached->fraud_data, true) : null,
+                'cached' => true
+            );
+        }
+        
+        // Generate fresh stats from order history
+        $phone_stats = $this->get_phone_order_stats($phone);
+        
+        $total_success = $phone_stats['completed'];
+        $total_cancel = $phone_stats['cancelled'];
+        $total_orders = $total_success + $total_cancel;
+        $success_rate = $total_orders > 0 ? round(($total_success / $total_orders) * 100, 2) : 0;
+        $risk_level = $this->calculate_risk_level($success_rate, $total_orders);
+        
+        
+        // Update or insert cache
+        $wpdb->replace(
+            $table_name,
+            array(
+                'phone_number' => $phone,
+                'success_count' => $total_success,
+                'cancel_count' => $total_cancel,
+                'total_orders' => $total_orders,
+                'success_rate' => $success_rate,
+                'risk_level' => $risk_level
+            ),
+            array('%s', '%d', '%d', '%d', '%f', '%s')
+        );
+        
+        return array(
+            'total_success' => $total_success,
+            'total_cancel' => $total_cancel,
+            'total_orders' => $total_orders,
+            'success_rate' => $success_rate,
+            'risk_level' => $risk_level,
+            'fraud_data' => null,
+            'cached' => false
+        );
+    }
+    
+    /**
+     * Calculate risk level based on success rate and order count
+     */
+    private function calculate_risk_level($success_rate, $total_orders) {
+        // If no order history, consider it medium risk
+        if ($total_orders == 0) {
+            return 'medium';
+        }
+        
+        // High risk if success rate is very low
+        if ($success_rate < 30) {
+            return 'high';
+        }
+        
+        // Medium risk if success rate is moderate
+        if ($success_rate < 70) {
+            return 'medium';
+        }
+        
+        // Low risk if success rate is high
+        return 'low';
+    }
+    
+    /**
+     * Get risk class from stats
+     */
+    private function get_risk_class($stats) {
+        return isset($stats['risk_level']) ? $stats['risk_level'] : 'medium';
+    }
+    
+    /**
+     * Get color for risk level
+     */
+    private function get_risk_color($risk_class) {
+        switch ($risk_class) {
+            case 'low':
+                return '#10b981'; // Green
+            case 'medium':
+                return '#f59e0b'; // Orange
+            case 'high':
+                return '#ef4444'; // Red
+            default:
+                return '#6b7280'; // Gray
         }
     }
     
@@ -376,6 +581,168 @@ class Phone_History {
         <?php
         
         wp_send_json_success(ob_get_clean());
+    }
+    
+    /**
+     * Get fraud check details for modal via AJAX
+     */
+    public function get_fraud_check_details_ajax() {
+        check_ajax_referer('sohoj_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+        
+        $phone = sanitize_text_field($_POST['phone']);
+        
+        if (empty($phone)) {
+            wp_send_json_error('Phone number required');
+        }
+        
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'sohoj_fraud_cache';
+        
+        // Get cached data first
+        $cached_data = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM $table_name WHERE phone_number = %s",
+            $phone
+        ));
+        
+        // Check if we have valid API fraud data in cache
+        if ($cached_data && $cached_data->fraud_data && (strtotime($cached_data->last_updated) > (time() - 86400))) { // 24 hours cache
+            $fraud_data = json_decode($cached_data->fraud_data, true);
+            if ($fraud_data && isset($fraud_data['success'])) {
+                // Use cached API data
+                $fraud_checker = new \SohojSecureOrder\Core\Fraud_Checker();
+                $html_output = $fraud_checker->generate_fraud_report_html($fraud_data);
+                wp_send_json_success($html_output);
+                return;
+            }
+        }
+        
+        // Check if license is active for API call
+        if (!\SohojSecureOrder\Core\License_Manager::is_license_active()) {
+            // Show basic stats without API data
+            $basic_stats = $this->get_cached_fraud_stats($phone);
+            $html_output = $this->generate_basic_fraud_report($phone, $basic_stats);
+            wp_send_json_success($html_output);
+            return;
+        }
+        
+        // Get API key from license manager
+        $api_key = \SohojSecureOrder\Core\License_Manager::get_api_key();
+        
+        if (empty($api_key)) {
+            // Show basic stats without API data
+            $basic_stats = $this->get_cached_fraud_stats($phone);
+            $html_output = $this->generate_basic_fraud_report($phone, $basic_stats);
+            wp_send_json_success($html_output);
+            return;
+        }
+        
+        // Make API call to get detailed fraud data
+        $fraud_checker = new \SohojSecureOrder\Core\Fraud_Checker();
+        $api_response = $fraud_checker->call_curtcommerz_fraud_api($phone, $api_key);
+        
+        if (is_wp_error($api_response)) {
+            error_log('Fraud Check AJAX Error: ' . $api_response->get_error_message());
+            // Fallback to basic stats
+            $basic_stats = $this->get_cached_fraud_stats($phone);
+            $html_output = $this->generate_basic_fraud_report($phone, $basic_stats);
+            wp_send_json_success($html_output);
+            return;
+        }
+        
+        // Extract better stats from API response
+        $api_success = isset($api_response['success']) ? (int)$api_response['success'] : 0;
+        $api_cancel = isset($api_response['cancel']) ? (int)$api_response['cancel'] : 0;
+        $api_total = $api_success + $api_cancel;
+        $api_success_rate = $api_total > 0 ? round(($api_success / $api_total) * 100, 2) : 0;
+        $api_risk_level = $this->calculate_risk_level($api_success_rate, $api_total);
+        
+        // Update cache with both API data and calculated stats
+        $wpdb->replace(
+            $table_name,
+            array(
+                'phone_number' => $phone,
+                'fraud_data' => wp_json_encode($api_response),
+                'success_count' => $api_success,
+                'cancel_count' => $api_cancel,
+                'total_orders' => $api_total,
+                'success_rate' => $api_success_rate,
+                'risk_level' => $api_risk_level,
+                'last_updated' => current_time('mysql')
+            ),
+            array('%s', '%s', '%d', '%d', '%d', '%f', '%s', '%s')
+        );
+        
+        // Generate detailed fraud report
+        $html_output = $fraud_checker->generate_fraud_report_html($api_response);
+        
+        // Return both HTML and updated stats for JavaScript to update the button
+        $updated_stats = array(
+            'total_success' => $api_success,
+            'total_cancel' => $api_cancel,
+            'total_orders' => $api_total,
+            'success_rate' => $api_success_rate,
+            'risk_level' => $api_risk_level
+        );
+        
+        wp_send_json_success(array(
+            'html' => $html_output,
+            'stats' => $updated_stats
+        ));
+    }
+    
+    /**
+     * Generate basic fraud report when API is not available
+     */
+    private function generate_basic_fraud_report($phone, $stats) {
+        $risk_color = $this->get_risk_color($stats['risk_level']);
+        $risk_label = ucfirst($stats['risk_level']);
+        
+        ob_start();
+        ?>
+        <div class="fraud-result-card" style="background: #f9fafb; border-radius: 12px; padding: 24px;">
+            <div class="fraud-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 2px solid rgba(0,0,0,0.1);">
+                <h3 style="margin: 0; font-size: 20px; color: #1f2937;">📊 Basic Risk Analysis</h3>
+                <div class="risk-badge" style="padding: 8px 16px; border-radius: 20px; font-weight: bold; font-size: 12px; background: <?php echo $risk_color; ?>; color: white;">
+                    Risk: <?php echo $risk_label; ?> (<?php echo number_format($stats['success_rate'], 1); ?>%)
+                </div>
+            </div>
+
+            <div class="fraud-summary" style="margin-bottom: 30px;">
+                <div class="summary-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px;">
+                    <div class="summary-item" style="background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(0,0,0,0.1);">
+                        <span style="display: block; font-size: 28px; font-weight: bold; color: #1f2937; margin-bottom: 5px;"><?php echo $stats['total_orders']; ?></span>
+                        <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280;">Total Orders</span>
+                    </div>
+                    <div class="summary-item" style="background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(0,0,0,0.1);">
+                        <span style="display: block; font-size: 28px; font-weight: bold; color: #1f2937; margin-bottom: 5px;"><?php echo $stats['total_success']; ?></span>
+                        <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280;">Successful</span>
+                    </div>
+                    <div class="summary-item" style="background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(0,0,0,0.1);">
+                        <span style="display: block; font-size: 28px; font-weight: bold; color: #1f2937; margin-bottom: 5px;"><?php echo $stats['total_cancel']; ?></span>
+                        <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280;">Cancelled</span>
+                    </div>
+                    <div class="summary-item" style="background: rgba(255,255,255,0.8); padding: 15px; border-radius: 10px; text-align: center; border: 1px solid rgba(0,0,0,0.1);">
+                        <span style="display: block; font-size: 28px; font-weight: bold; color: #1f2937; margin-bottom: 5px;"><?php echo number_format($stats['success_rate'], 1); ?>%</span>
+                        <span style="font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b7280;">Success Rate</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="background: #e0f2fe; border: 1px solid #0284c7; border-radius: 8px; padding: 16px; text-align: center;">
+                <p style="margin: 0; color: #0c4a6e;"><strong>📋 Basic Analysis</strong><br>
+                This analysis is based on your WooCommerce order history for phone number <strong><?php echo esc_html($phone); ?></strong>. 
+                <?php if (!\SohojSecureOrder\Core\License_Manager::is_license_active()): ?>
+                <br><br><a href="<?php echo admin_url('admin.php?page=sohoj-license'); ?>" style="color: #0284c7; text-decoration: underline;">Activate your license</a> for detailed fraud analysis with courier data and AI recommendations.
+                <?php endif; ?>
+                </p>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
     }
     
     /**

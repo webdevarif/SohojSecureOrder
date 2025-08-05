@@ -1,5 +1,7 @@
 # Sohoj Secure Order - WordPress Plugin
 
+Version: 1.0.5
+
 A comprehensive WordPress plugin for secure customer information validation with advanced fraud detection, VPN blocking, phone validation, and repeat validation prevention. Built with OOP architecture, license key validation, and automatic update checking from GitHub.
 
 ## Features
@@ -84,7 +86,7 @@ A comprehensive WordPress plugin for secure customer information validation with
    - IP and phone number blocking
 
 ### Update Configuration
-The plugin automatically checks for updates from the configured GitHub repository. Update the repository URL in the `Update_Checker` class if needed.
+The plugin automatically checks for updates from the configured GitHub repository using the WordPress GitHub Plugin Updater. Update the repository URL in the `GitHub_Updater` configuration if needed.
 
 ## File Structure
 
@@ -95,7 +97,7 @@ sohoj-secure-order/
 │   ├── Core/
 │   │   ├── Plugin.php              # Main plugin class
 │   │   ├── License_Manager.php     # License management
-│   │   ├── Update_Checker.php      # Update checking
+│   │   ├── GitHub_Updater.php      # GitHub-based update checking
 │   │   ├── Activator.php           # Plugin activation
 │   │   ├── Deactivator.php         # Plugin deactivation
 │   │   └── Uninstaller.php         # Plugin uninstallation

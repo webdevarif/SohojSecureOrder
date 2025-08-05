@@ -66,7 +66,7 @@ class Fraud_Checker {
         wp_send_json_success($html_output);
     }
 
-    private function call_curtcommerz_fraud_api($phone, $api_key) {
+    public function call_curtcommerz_fraud_api($phone, $api_key) {
         $api_url = \SohojSecureOrder\Core\License_Manager::API_BASE_URL . 'couriers/fraud_check/';
         
         // Get AI setting from WordPress options
@@ -128,7 +128,7 @@ class Fraud_Checker {
     }
 
 
-    private function generate_fraud_report_html($response_data) {
+    public function generate_fraud_report_html($response_data) {
         // Handle API response structure - check different possible response formats
         error_log('Fraud Check - Analyzing response structure: ' . wp_json_encode($response_data));
         

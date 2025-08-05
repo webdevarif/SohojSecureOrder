@@ -45,6 +45,19 @@ class Checkout_Validator {
         // Add order limit info to checkout page (if enabled in settings)
         add_action('woocommerce_before_checkout_billing_form', array($this, 'add_order_limit_info'));
         
+        // Try multiple WooCommerce hooks for product details
+        add_action('woocommerce_after_checkout_billing_form', array($this, 'add_single_product_details'), 10);
+        add_action('woocommerce_checkout_before_order_review', array($this, 'add_single_product_details'), 5);
+        add_action('woocommerce_checkout_after_customer_details', array($this, 'add_single_product_details'), 10);
+        add_action('woocommerce_review_order_before_cart_contents', array($this, 'add_single_product_details'), 5);
+        
+        // Add JavaScript injection as fallback
+        add_action('wp_footer', array($this, 'inject_product_details_js'));
+        
+        // Add simple test hook to verify WooCommerce hooks are working
+        add_action('woocommerce_before_checkout_form', array($this, 'test_checkout_hook'));
+        error_log('Sohoj Checkout: Registered multiple product details hooks');
+        
         // Add debug logging
         add_action('init', array($this, 'debug_log_settings'));
         
@@ -337,6 +350,368 @@ class Checkout_Validator {
                 <span><?php echo esc_html($info_message); ?></span>
             </div>
         </div>
+        <?php
+    }
+    
+    /**
+     * Add single product details below billing address
+     */
+    public function add_single_product_details() {
+        static $displayed = false;
+        
+        if ($displayed) {
+            return; // Prevent multiple displays
+        }
+        
+        error_log('Sohoj Checkout: add_single_product_details() called');
+        
+        if (!$this->is_woocommerce_active()) {
+            error_log('Sohoj Checkout: WooCommerce not active');
+            return;
+        }
+        
+        // Get cart contents
+        $cart = WC()->cart;
+        if (!$cart) {
+            error_log('Sohoj Checkout: No cart object');
+            return;
+        }
+        
+        if ($cart->is_empty()) {
+            error_log('Sohoj Checkout: Cart is empty');
+            return;
+        }
+        
+        $cart_items = $cart->get_cart();
+        $cart_count = count($cart_items);
+        
+        error_log('Sohoj Checkout: Cart has ' . $cart_count . ' items');
+        
+        // Only show for single product orders
+        if ($cart_count !== 1) {
+            if ($cart_count > 1) {
+                error_log('Sohoj Checkout: Displaying multiple products summary');
+                $this->display_multiple_products_summary($cart_items);
+                $displayed = true;
+            } else {
+                error_log('Sohoj Checkout: No items to display');
+            }
+            return;
+        }
+        
+        // Get the single product
+        $cart_item = reset($cart_items);
+        $product = $cart_item['data'];
+        $quantity = $cart_item['quantity'];
+        
+        if (!$product) {
+            error_log('Sohoj Checkout: No product found in cart item');
+            return;
+        }
+        
+        error_log('Sohoj Checkout: Displaying single product details for: ' . $product->get_name());
+        
+        // Add a simple test output first
+        echo '<div style="background: red; color: white; padding: 10px; margin: 10px 0;">SOHOJ DEBUG: Product details should appear here for: ' . esc_html($product->get_name()) . '</div>';
+        
+        $this->display_single_product_details($product, $cart_item, $quantity);
+        $displayed = true;
+    }
+    
+    /**
+     * Display single product details
+     */
+    private function display_single_product_details($product, $cart_item, $quantity) {
+        error_log('Sohoj Checkout: display_single_product_details() called for: ' . $product->get_name());
+        $product_name = $product->get_name();
+        $product_price = $product->get_price();
+        $product_image = $product->get_image('thumbnail');
+        $product_permalink = $product->get_permalink();
+        $product_sku = $product->get_sku();
+        $product_weight = $product->get_weight();
+        $product_dimensions = $product->get_dimensions(false);
+        $line_total = $cart_item['line_total'];
+        $line_subtotal = $cart_item['line_subtotal'];
+        
+        // Get product attributes/variations if applicable
+        $variation_data = '';
+        if ($product->is_type('variation')) {
+            $attributes = $product->get_variation_attributes();
+            if (!empty($attributes)) {
+                $variation_parts = array();
+                foreach ($attributes as $name => $value) {
+                    $variation_parts[] = ucfirst(str_replace('attribute_', '', $name)) . ': ' . $value;
+                }
+                $variation_data = implode(', ', $variation_parts);
+            }
+        }
+        
+        ?>
+        <div class="sohoj-single-product-details" style="
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        ">
+            <h3 style="
+                margin: 0 0 16px 0;
+                color: #1e293b;
+                font-size: 18px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            ">
+                <span style="font-size: 20px;">📦</span>
+                Order Summary
+            </h3>
+            
+            <div style="display: flex; gap: 16px; align-items: start;">
+                <!-- Product Image -->
+                <div style="flex-shrink: 0;">
+                    <a href="<?php echo esc_url($product_permalink); ?>" target="_blank" style="display: block; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                        <?php echo $product_image; ?>
+                    </a>
+                </div>
+                
+                <!-- Product Details -->
+                <div style="flex-grow: 1; min-width: 0;">
+                    <div style="margin-bottom: 12px;">
+                        <h4 style="margin: 0 0 4px 0; font-size: 16px; font-weight: 600; color: #1e293b;">
+                            <a href="<?php echo esc_url($product_permalink); ?>" target="_blank" style="color: #3b82f6; text-decoration: none;">
+                                <?php echo esc_html($product_name); ?>
+                            </a>
+                        </h4>
+                        
+                        <?php if ($variation_data): ?>
+                            <p style="margin: 0; font-size: 13px; color: #64748b;">
+                                <?php echo esc_html($variation_data); ?>
+                            </p>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <!-- Product Info Grid -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 12px;">
+                        <div style="background: rgba(255,255,255,0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <span style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Quantity</span>
+                            <span style="font-weight: 600; color: #1e293b;"><?php echo esc_html($quantity); ?></span>
+                        </div>
+                        
+                        <div style="background: rgba(255,255,255,0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <span style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Unit Price</span>
+                            <span style="font-weight: 600; color: #1e293b;"><?php echo wc_price($product_price); ?></span>
+                        </div>
+                        
+                        <?php if ($product_sku): ?>
+                        <div style="background: rgba(255,255,255,0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <span style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">SKU</span>
+                            <span style="font-weight: 600; color: #1e293b;"><?php echo esc_html($product_sku); ?></span>
+                        </div>
+                        <?php endif; ?>
+                        
+                        <?php if ($product_weight): ?>
+                        <div style="background: rgba(255,255,255,0.7); padding: 8px 12px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <span style="display: block; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Weight</span>
+                            <span style="font-weight: 600; color: #1e293b;"><?php echo esc_html($product_weight . ' ' . get_option('woocommerce_weight_unit')); ?></span>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                    
+                    <!-- Total Price -->
+                    <div style="background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); border: 2px solid #3b82f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <span style="display: block; font-size: 12px; color: #1e40af; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Total Amount</span>
+                        <span style="font-size: 20px; font-weight: 700; color: #1e40af;"><?php echo wc_price($line_total); ?></span>
+                        <?php if ($line_subtotal != $line_total): ?>
+                            <span style="display: block; font-size: 12px; color: #64748b; text-decoration: line-through; margin-top: 2px;">
+                                Original: <?php echo wc_price($line_subtotal); ?>
+                            </span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <style>
+        .sohoj-single-product-details img {
+            max-width: 80px;
+            height: auto;
+            border-radius: 6px;
+        }
+        
+        .sohoj-single-product-details a:hover {
+            opacity: 0.8;
+            transition: opacity 0.2s ease;
+        }
+        
+        @media (max-width: 768px) {
+            .sohoj-single-product-details {
+                padding: 16px !important;
+            }
+            
+            .sohoj-single-product-details > div:first-of-type {
+                flex-direction: column !important;
+                gap: 12px !important;
+            }
+            
+            .sohoj-single-product-details img {
+                max-width: 60px !important;
+            }
+            
+            .sohoj-single-product-details h3 {
+                font-size: 16px !important;
+            }
+            
+            .sohoj-single-product-details h4 {
+                font-size: 14px !important;
+            }
+        }
+        </style>
+        <?php
+    }
+    
+    /**
+     * Display multiple products summary
+     */
+    private function display_multiple_products_summary($cart_items) {
+        $total_items = 0;
+        $total_amount = 0;
+        
+        foreach ($cart_items as $cart_item) {
+            $total_items += $cart_item['quantity'];
+            $total_amount += $cart_item['line_total'];
+        }
+        
+        ?>
+        <div class="sohoj-multiple-products-summary" style="
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 1px solid #f59e0b;
+            border-radius: 12px;
+            padding: 16px;
+            margin: 20px 0;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        ">
+            <h3 style="
+                margin: 0 0 12px 0;
+                color: #92400e;
+                font-size: 16px;
+                font-weight: 600;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            ">
+                <span style="font-size: 18px;">🛒</span>
+                Order Summary (<?php echo count($cart_items); ?> Products)
+            </h3>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;">
+                <div style="background: rgba(255,255,255,0.7); padding: 12px; border-radius: 6px; text-align: center;">
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #92400e;"><?php echo $total_items; ?></span>
+                    <span style="font-size: 11px; color: #92400e; text-transform: uppercase;">Total Items</span>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.7); padding: 12px; border-radius: 6px; text-align: center;">
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #92400e;"><?php echo count($cart_items); ?></span>
+                    <span style="font-size: 11px; color: #92400e; text-transform: uppercase;">Products</span>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.7); padding: 12px; border-radius: 6px; text-align: center;">
+                    <span style="display: block; font-size: 20px; font-weight: 700; color: #92400e;"><?php echo wc_price($total_amount); ?></span>
+                    <span style="font-size: 11px; color: #92400e; text-transform: uppercase;">Subtotal</span>
+                </div>
+            </div>
+            
+            <p style="margin: 12px 0 0 0; font-size: 12px; color: #92400e; text-align: center; opacity: 0.8;">
+                View full order details in the summary section →
+            </p>
+        </div>
+        <?php
+    }
+    
+    /**
+     * Test checkout hook to verify WooCommerce integration
+     */
+    public function test_checkout_hook() {
+        error_log('Sohoj Checkout: test_checkout_hook() called - WooCommerce hooks are working!');
+        echo '<div style="background: green; color: white; padding: 10px; margin: 10px 0; border-radius: 5px;">✅ SOHOJ DEBUG: WooCommerce checkout hooks are working!</div>';
+    }
+    
+    /**
+     * Inject product details via JavaScript as fallback
+     */
+    public function inject_product_details_js() {
+        if (!is_checkout() || !$this->is_woocommerce_active()) {
+            return;
+        }
+        
+        // Get cart contents
+        $cart = WC()->cart;
+        if (!$cart || $cart->is_empty()) {
+            return;
+        }
+        
+        $cart_items = $cart->get_cart();
+        $cart_count = count($cart_items);
+        
+        if ($cart_count !== 1) {
+            return; // Only for single product orders
+        }
+        
+        // Get the single product
+        $cart_item = reset($cart_items);
+        $product = $cart_item['data'];
+        $quantity = $cart_item['quantity'];
+        
+        if (!$product) {
+            return;
+        }
+        
+        // Generate the HTML
+        ob_start();
+        $this->display_single_product_details($product, $cart_item, $quantity);
+        $product_html = ob_get_clean();
+        
+        // Escape the HTML for JavaScript
+        $escaped_html = json_encode($product_html);
+        
+        ?>
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            console.log('Sohoj: Attempting to inject product details via JavaScript');
+            
+            var productHtml = <?php echo $escaped_html; ?>;
+            var injected = false;
+            
+            // Try multiple selectors to find the right place to inject
+            var selectors = [
+                '#billing_address_1_field',
+                '.woocommerce-billing-fields',
+                '.woocommerce-billing-fields__field-wrapper',
+                '[id*="billing"]',
+                '.col-1',
+                '.woocommerce-checkout-review-order',
+                '.checkout_coupon'
+            ];
+            
+            for (var i = 0; i < selectors.length; i++) {
+                var $target = $(selectors[i]).last();
+                if ($target.length > 0 && !injected) {
+                    console.log('Sohoj: Found target element:', selectors[i]);
+                    $target.after('<div id="sohoj-product-details-js">' + productHtml + '</div>');
+                    injected = true;
+                    break;
+                }
+            }
+            
+            if (!injected) {
+                console.log('Sohoj: Could not find target element, appending to checkout form');
+                $('.woocommerce-checkout').prepend('<div id="sohoj-product-details-js">' + productHtml + '</div>');
+            }
+            
+            console.log('Sohoj: Product details injection completed');
+        });
+        </script>
         <?php
     }
     

@@ -61,12 +61,13 @@ class Plugin {
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Deactivator.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Uninstaller.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/License_Manager.php';
-        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Update_Checker.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/GitHub_Updater.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_Validator.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Order_Limiter.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Incomplete_Orders.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/IP_Blocker.php';
         require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Phone_History.php';
+        require_once SOHOJ_PLUGIN_PATH . 'includes/Core/Fraud_Checker.php';
         
         // Admin classes
         require_once SOHOJ_PLUGIN_PATH . 'includes/Admin/Form_Components.php';
@@ -95,8 +96,8 @@ class Plugin {
         // Initialize license manager
         new \SohojSecureOrder\Core\License_Manager();
         
-        // Initialize update checker
-        new \SohojSecureOrder\Core\Update_Checker();
+        // Initialize GitHub updater
+        $this->init_github_updater();
         
         // Initialize WooCommerce checkout validator
         new \SohojSecureOrder\WooCommerce\Checkout_Validator();
@@ -113,6 +114,31 @@ class Plugin {
         
         // Initialize Phone History
         new \SohojSecureOrder\Core\Phone_History();
+        
+        // Initialize Fraud Checker
+        new \SohojSecureOrder\Core\Fraud_Checker();
+    }
+    
+    /**
+     * Initialize GitHub updater
+     */
+    private function init_github_updater() {
+        if (is_admin()) {
+            $config = array(
+                'slug' => plugin_basename(SOHOJ_PLUGIN_FILE),
+                'proper_folder_name' => dirname(plugin_basename(SOHOJ_PLUGIN_FILE)),
+                'api_url' => 'https://api.github.com/repos/webdevarif/SohojSecureOrder',
+                'raw_url' => 'https://raw.githubusercontent.com/webdevarif/SohojSecureOrder/main',
+                'github_url' => 'https://github.com/webdevarif/SohojSecureOrder',
+                'zip_url' => 'https://github.com/webdevarif/SohojSecureOrder/zipball/main',
+                'sslverify' => true,
+                'requires' => '5.0',
+                'tested' => '6.4',
+                'readme' => 'README.md',
+                'access_token' => '', // Add if private repo
+            );
+            new \SohojSecureOrder\Core\GitHub_Updater($config);
+        }
     }
     
     /**

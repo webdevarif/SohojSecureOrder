@@ -1,5 +1,107 @@
 /* Sohoj Secure Order Admin Styles - Beautiful Black & White Design */
 
+/* Fraud Check Column Styles */
+.sohoj-fraud-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.sohoj-fraud-indicator .risk-circle {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 2px solid rgba(255,255,255,0.8);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+/* Risk level specific colors with better contrast */
+.sohoj-fraud-indicator .risk-circle.risk-low {
+    background: #10b981 !important; /* Green */
+}
+
+.sohoj-fraud-indicator .risk-circle.risk-medium {
+    background: #f59e0b !important; /* Orange */
+}
+
+.sohoj-fraud-indicator .risk-circle.risk-high {
+    background: #ef4444 !important; /* Red */
+}
+
+.sohoj-fraud-indicator .risk-circle.risk-unknown {
+    background: #6b7280 !important; /* Gray */
+}
+
+.sohoj-fraud-btn {
+    font-size: 11px !important;
+    padding: 2px 6px !important;
+    min-height: auto !important;
+    line-height: 1.2 !important;
+}
+
+.sohoj-fraud-btn:hover {
+    background-color: #f0f0f0 !important;
+    border-color: #999 !important;
+}
+
+/* Fraud Check Modal Styles */
+#sohoj-fraud-check-modal {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+#sohoj-fraud-check-modal .fraud-result-card {
+    border-radius: 12px;
+    padding: 24px;
+    margin: 0;
+    box-shadow: none;
+    border: none;
+    background: #f9fafb;
+}
+
+#sohoj-fraud-check-modal .fraud-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 2px solid rgba(0,0,0,0.1);
+}
+
+#sohoj-fraud-check-modal .fraud-title {
+    margin: 0;
+    font-size: 20px;
+    color: #1f2937;
+    font-weight: 600;
+}
+
+#sohoj-fraud-check-modal .risk-badge {
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+#sohoj-fraud-check-modal .risk-low {
+    background: linear-gradient(135deg, #d1fae5, #a7f3d0);
+    color: #065f46;
+    border: 2px solid #10b981;
+}
+
+#sohoj-fraud-check-modal .risk-medium {
+    background: linear-gradient(135deg, #fef3c7, #fde68a);
+    color: #92400e;
+    border: 2px solid #f59e0b;
+}
+
+#sohoj-fraud-check-modal .risk-high {
+    background: linear-gradient(135deg, #fee2e2, #fecaca);
+    color: #991b1b;
+    border: 2px solid #ef4444;
+}
+
 /* Main Container */
 .sohoj-form-container {
     max-width: 700px;
