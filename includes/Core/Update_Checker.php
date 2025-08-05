@@ -27,21 +27,34 @@ class Update_Checker {
      * Initialize update checker
      */
     private function init() {
-        // Add admin notices
-        add_action('admin_notices', array($this, 'show_update_notices'));
+        // Add custom admin notices (not WordPress plugin update notices)
+        add_action('admin_notices', array($this, 'show_custom_update_notice'));
         
         // Add plugin row meta
         add_filter('plugin_row_meta', array($this, 'add_plugin_row_meta'), 10, 2);
         
-        // Add update action to plugins page
+        // Add custom update action
         add_action('admin_action_sohoj_update_plugin', array($this, 'update_plugin'));
         
-        // Add update link to plugins page
+        // Add custom update link to plugins page
         add_filter('plugin_action_links_' . plugin_basename(SOHOJ_PLUGIN_FILE), array($this, 'add_update_link'));
+        
+        // Disable WordPress plugin update checker for this plugin
+        add_filter('site_transient_update_plugins', array($this, 'disable_wordpress_update_check'));
     }
     
     /**
-     * Check for updates
+     * Disable WordPress plugin update checker for this plugin
+     */
+    public function disable_wordpress_update_check($transient) {
+        if (isset($transient->response[plugin_basename(SOHOJ_PLUGIN_FILE)])) {
+            unset($transient->response[plugin_basename(SOHOJ_PLUGIN_FILE)]);
+        }
+        return $transient;
+    }
+    
+    /**
+     * Check for updates from our custom endpoint
      */
     private function check_for_updates() {
         $current_version = SOHOJ_PLUGIN_VERSION;
@@ -85,9 +98,9 @@ class Update_Checker {
     }
     
     /**
-     * Show update notices
+     * Show custom update notice (not WordPress plugin update notice)
      */
-    public function show_update_notices() {
+    public function show_custom_update_notice() {
         $update_available = $this->check_for_updates();
         $latest_version = get_option('sohoj_latest_version');
         
